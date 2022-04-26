@@ -1,0 +1,246 @@
+---
+title: ""
+author: 
+    -   name: "Brynjólfur Gauti Guðrúnar Jónsson"
+        url: "https://twitter.com/bgautijonsson"
+        affiliation: "Tölfræði, Raunvísindadeild Háskóla Íslands"
+        affiliation-url: "https://www.hi.is/tolfraedi_0"
+date: today
+format: 
+    html:
+        code-fold: true
+        toc: true
+        toc-location: right
+        toc-title: Efnisyfirlit
+editor: source
+theme: flatly
+title-block-banner: true
+standalone: true
+self-contained: true
+---
+
+
+```{r}
+#| include: false
+
+library(cowplot)
+library(tidyverse)
+library(scales)
+library(pxweb)
+library(ggthemes)
+library(kableExtra)
+library(gganimate)
+library(lubridate)
+library(geomtextpath)
+library(ggtext)
+library(here)
+library(readxl)
+```
+
+
+```{r}
+url <- "https://px.hagstofa.is:443/pxis/api/v1/is/Samfelag/vinnumarkadur/vinnuaflskraargogn/VIN10052.px"
+
+px_vars <- pxweb_get(url)
+
+query_list <- list(  
+    "Mánuður" = c("*"),  
+    "Aldur" = c("0"),  
+    "Rekstrarform" = c("*"),  
+    "Kyn" = c("0"),  
+    "Bakgrunnur" = c("*"),  
+    "Lögheimili" = c("0")
+    
+)
+
+d <- pxweb_get(url, query = pxweb_query(query_list), verbose = FALSE) |>  
+    as.data.frame() |>  
+    as_tibble() |>  
+    janitor::clean_names() |>  
+    separate(manudur, into = c("ar", "manudur"), sep = "M") |>  
+    mutate(dags = str_c(ar, "-", manudur, "-01") |> ymd()) |>  
+    select(dags, kyn, rekstrarform, starfandi, bakgrunnur) |>  
+    drop_na() |>  
+    mutate(tegund = case_when(str_detect(rekstrarform, "^K") ~ "Opinbert",  
+                              str_detect(rekstrarform, "^B2") ~ "Opinbert",  
+                              TRUE ~ "Annad"))
+
+
+
+```
+
+# Myndir
+
+## Almennur vinnumarkaður
+
+```{r}
+plot_dat <-  d |>  
+    filter(rekstrarform != "Alls starfandi", bakgrunnur == "Alls") |>  
+    count(dags, tegund, wt = starfandi) |>  
+    pivot_wider(names_from = tegund, values_from = n) |>  
+    filter(year(dags) >= 2017)
+
+p <- plot_dat |> 
+    ggplot(aes(dags, Annad)) +  
+    geom_vline(xintercept = ymd(c("2018-01-01", "2019-01-01", "2020-01-01", "2021-01-01", "2022-01-01")), lty = 2, alpha = 0.3) +
+    geom_line() +  
+    geom_rangeframe() +  
+    scale_y_continuous(breaks = c(range(plot_dat$Annad), 1.2e5, 1.3e5, 1.4e5),
+                       limits = c(1.1e5, 1.5e5),
+                       labels = label_number()) +
+    scale_x_date(date_breaks = "3 months", date_labels = "%b/%y",  
+                 guide = guide_axis(n.dodge = 2),  
+                 expand = expansion()) +  
+    labs(x = NULL,
+         y = NULL,
+         title = "Fjöldi starfandi á almennum vinnumarkaði",
+         caption = "Kóði og gögn: https://github.com/bgautijonsson/atvinna") +
+    theme_tufte() +  
+    theme(plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+
+p
+
+ggsave(plot = p, filename = "fjoldi_almennur.png",
+       width = 8, height = 0.4 * 8, scale = 2, bg = "white")
+```
+```{r}
+plot_dat <- d |>  
+    filter(rekstrarform != "Alls starfandi", bakgrunnur == "Alls") |>  
+    count(dags, tegund, wt = starfandi) |>  
+    pivot_wider(names_from = tegund, values_from = n) |>  
+    filter(year(dags) >= 2017) |>  
+    mutate(manudur = month(dags)) |>  
+    group_by(manudur) |>  
+    mutate(breyting = Annad - Annad[year(dags) == min(year(dags))]) |> 
+    ungroup()
+
+p <- plot_dat |> 
+    ggplot(aes(dags, breyting)) +  
+    geom_vline(xintercept = ymd(c("2018-01-01", "2019-01-01", "2020-01-01", "2021-01-01", "2022-01-01")), lty = 2, alpha = 0.3) +
+    geom_hline(yintercept = 0, lty = 2) +  
+    geom_line() +  
+    geom_rangeframe() +  
+    scale_y_continuous(breaks = c(range(plot_dat$breyting), -1e4, -5e3, 0, 5e3),
+                       labels = label_number(),
+                       limits = c(-1.8e4, 1e4)) +  
+    scale_x_date(date_breaks = "3 months", date_labels = "%b/%y",  
+                 guide = guide_axis(n.dodge = 2),  
+                 expand = expansion()) +  
+    labs(x = NULL, y = NULL,  
+         title = "Fjöldi starfandi á almennum vinnumarkaði miðað við sama mánuð 2017",
+         subtitle = "Janúar 2022 er fyrsti mánuður þar sem fleiri unnu á almennum markaði en sama mánuð 2017",
+         caption = "Kóði og gögn: https://github.com/bgautijonsson/atvinna") +  
+    theme_tufte() +  
+    theme(plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+
+p
+
+ggsave(plot = p, filename = "munur_almennur_2017.png",
+       width = 8, height = 0.4 * 8, scale = 2, bg = "white")
+```
+
+## Opinbert starfsfólk
+
+```{r}
+plot_dat <-  d |>  
+    filter(rekstrarform != "Alls starfandi", bakgrunnur == "Alls") |>  
+    count(dags, tegund, wt = starfandi) |>  
+    pivot_wider(names_from = tegund, values_from = n) |>  
+    filter(year(dags) >= 2017) |> 
+    mutate(hlutf = Annad / (Opinbert + Annad))
+
+p <- plot_dat |> 
+    ggplot(aes(dags, Opinbert)) +  
+    geom_vline(xintercept = ymd(c("2018-01-01", "2019-01-01", "2020-01-01", "2021-01-01", "2022-01-01")), lty = 2, alpha = 0.3) +
+    geom_line() +  
+    geom_rangeframe() +  
+    scale_y_continuous(breaks = c(range(plot_dat$Opinbert), 6e4, 6.5e4),
+                       labels = label_number()) +
+    scale_x_date(date_breaks = "3 months", date_labels = "%b/%y",  
+                 guide = guide_axis(n.dodge = 2),  
+                 expand = expansion()) +  
+    labs(x = NULL,
+         y = NULL,
+         title = "Fjöldi opinbers starfsfólks",
+         caption = "Kóði og gögn: https://github.com/bgautijonsson/atvinna") +
+    theme_tufte() +  
+    theme(plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+
+p
+
+ggsave(plot = p, filename = "fjoldi_opinbert.png",
+       width = 8, height = 0.4 * 8, scale = 2, bg = "white")
+```
+
+```{r}
+plot_dat <- d |>  
+    filter(rekstrarform != "Alls starfandi", bakgrunnur == "Alls") |>  
+    count(dags, tegund, wt = starfandi) |>  
+    pivot_wider(names_from = tegund, values_from = n) |>  
+    filter(year(dags) >= 2017) |>  
+    mutate(manudur = month(dags)) |>  
+    group_by(manudur) |>  
+    mutate(breyting = Opinbert - Opinbert[year(dags) == min(year(dags))]) |> 
+    ungroup()
+
+p <- plot_dat |> 
+    ggplot(aes(dags, breyting)) +  
+    geom_vline(xintercept = ymd(c("2018-01-01", "2019-01-01", "2020-01-01", "2021-01-01", "2022-01-01")), lty = 2, alpha = 0.3) +
+    geom_hline(yintercept = 0, lty = 2) +  
+    geom_line() +  
+    geom_rangeframe() +  
+    scale_y_continuous(breaks = c(range(plot_dat$breyting), 0, 2.5e3, 5e3, 7.5e3),
+                       labels = label_number(),
+                       limits = c(-1e3, 1.3e4)) +  
+    scale_x_date(date_breaks = "3 months", date_labels = "%b/%y",  
+                 guide = guide_axis(n.dodge = 2),  
+                 expand = expansion()) +  
+    labs(x = NULL, y = NULL,  
+         title = "Fjöldi starfandi í opinberum störfum miðað við sama mánuð 2017",
+         caption = "Kóði og gögn: https://github.com/bgautijonsson/atvinna") +  
+    theme_tufte() +  
+    theme(plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+
+p
+
+ggsave(plot = p, filename = "munur_opinbert_2017.png",
+       width = 8, height = 0.4 * 8, scale = 2, bg = "white")
+```
+
+```{r}
+plot_dat <- d |>  
+    filter(rekstrarform != "Alls starfandi", bakgrunnur == "Alls") |>  
+    count(dags, tegund, wt = starfandi) |>  
+    pivot_wider(names_from = tegund, values_from = n) |>  
+    filter(year(dags) >= 2017) |>  
+    mutate(manudur = month(dags),
+           hlutf = Opinbert / (Annad + Opinbert)) |> 
+    ungroup() |> 
+    group_by(manudur) |>  
+    mutate(breyting = hlutf - hlutf[year(dags) == min(year(dags))]) |> 
+    ungroup()
+
+p <- plot_dat |> 
+    ggplot(aes(dags, breyting)) +  
+    geom_vline(xintercept = ymd(c("2018-01-01", "2019-01-01", "2020-01-01", "2021-01-01", "2022-01-01")), lty = 2, alpha = 0.3) +
+    geom_line() +  
+    geom_rangeframe() +  
+    scale_y_continuous(breaks = c(range(plot_dat$breyting), 0.05, 0.04, 0.03, 0.02, 0.01),
+                       labels = label_percent(accuracy = 0.1)) +  
+    scale_x_date(date_breaks = "3 months", date_labels = "%b/%y",  
+                 guide = guide_axis(n.dodge = 2),  
+                 expand = expansion()) +  
+    labs(x = NULL, y = NULL,  
+         title = "Munur á hlutfalli opinbers starfsfólks frá sama mánuði 2017",
+         subtitle = "Hlutfall opinbers starfsfólks virðist vera aftur á leið í fyrra horf",
+         caption = "Kóði og gögn: https://github.com/bgautijonsson/atvinna") +  
+    theme_tufte() +  
+    theme(plot.margin = margin(t = 5, r = 20, b = 5, l = 5))
+
+p
+
+ggsave(plot = p, filename = "munur_hlutf_opinbert_2017.png",
+       width = 8, height = 0.4 * 8, scale = 2, bg = "white")
+```
+
+
